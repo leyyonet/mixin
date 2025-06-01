@@ -1,16 +1,16 @@
-import {$assert, $descriptor, $dev, Arr, ClassLike, Func} from "@leyyo/common";
-import {DecoKind, fqnHandler, nameHandler, reflectionPool} from "@leyyo/core";
+import {$assert, $dev, $name, Arr, ClassLike} from "@leyyo/common";
+import {fqnHandler, reflectionPool} from "@leyyo/core";
+
 import {FQN} from "./internal";
 
-let counter = 0;
 export function OmitType<T, K extends keyof T>(
-    clazz: ClassLike<T>,
+    source: ClassLike<T>,
     omittedKeys: readonly K[]
 ): ClassLike<Omit<T, (typeof omittedKeys)[number]>> {
-    $assert.func(clazz, () => $dev.opt({field: 'clazz', where: `${FQN}.OmitType`}));
+    $assert.func(source, () => $dev.opt({field: 'source', where: `${FQN}.OmitType`}));
     $assert.textArray(omittedKeys, () => $dev.opt({field: 'omittedKeys', where: `${FQN}.OmitType`}));
 
-    const newClass = class extends (clazz as ClassLike) {
+    const clazz = class extends (source as ClassLike) {
         constructor(...args: Arr) {
             super(...args);
             omittedKeys.forEach(key => {
@@ -21,36 +21,23 @@ export function OmitType<T, K extends keyof T>(
             })
         }
     }
-    let pck = fqnHandler.$secure.$getPackage(clazz);
+    let {pck} = fqnHandler.$secure.$get(source);
     if (!pck) {
         pck = FQN;
     }
-    const name = nameHandler.anonymous('Omit', counter);
-    nameHandler.set(newClass, name);
-    fqnHandler.clazz(newClass, pck);
+    const name = $name.anonymous(source.name);
+    $name.set(clazz, name);
+    fqnHandler.clazz(clazz, pck);
 
-    reflectionPool.registerClass(newClass, undefined, ref => {
-        Object.getOwnPropertyNames(newClass.prototype).forEach(key => {
-            if (!omittedKeys.includes(key as K)) {
-                const desc = $descriptor.get(newClass.prototype, key);
-                if (desc) {
-                    let kind: DecoKind;
-                    let callable: Func;
-                    if (typeof desc.value === 'function') {
-                        kind = 'method';
-                        callable = desc.value;
-                    } else {
-                        kind = 'field';
-                        callable = undefined;
-                    }
-                    ref.$secure.$registerProperty(key, 'instance', kind, callable, true);
-                }
-            }
-        });
 
+    const classRef = reflectionPool.registerClass(clazz);
+
+    classRef.listInstancePropertyNames().forEach(key => {
+        if ( omittedKeys.includes(key as K)) {
+            classRef.$secure.$deleteProperty(key, 'instance');
+        }
     });
 
-    counter++;
-    return newClass as ClassLike<Omit<T, (typeof omittedKeys)[number]>>;
+    return clazz as ClassLike<Omit<T, (typeof omittedKeys)[number]>>;
 }
 fqnHandler.func(OmitType, FQN);
